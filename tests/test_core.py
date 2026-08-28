@@ -2,6 +2,12 @@ import numpy as np
 import pytest
 
 from best_pymc import analyze_one, analyze_two, hdi
+from best_pymc.core import (
+    BestResult,
+    _cohen_d,
+    _format_ttest_power_line,
+    _ttest_power_analysis,
+)
 
 FAST = dict(draws=500, tune=500, chains=2, random_seed=42)
 
@@ -85,6 +91,88 @@ def test_sigma_prior_variants():
         assert np.isfinite(res.samples("diff_of_means")).all()
 
 
+def test_cohen_d_known_values():
+    y1 = np.array([1.0, 2.0, 3.0])
+    y2 = np.array([0.0, 1.0, 2.0])
+    assert _cohen_d(y1, y2) == pytest.approx(1.0)
+    assert _cohen_d(y1) == pytest.approx(2.0)
+    assert np.isnan(_cohen_d(np.array([5.0, 5.0, 5.0])))
+
+
+def test_welch_ttest_includes_effect_size():
+    two = BestResult(
+        idata=object(),
+        model=object(),  # type: ignore[arg-type]
+        data={
+            "y1": np.array([1.0, 2.0, 3.0]),
+            "y2": np.array([0.0, 1.0, 2.0]),
+        },
+        group_names=("a", "b"),
+    )
+    w = two.welch_ttest()
+    assert w["test"] == "Welch t-test"
+    assert set(w) >= {"t", "p_value", "cohen_d"}
+    assert w["cohen_d"] == pytest.approx(1.0)
+
+    one = BestResult(
+        idata=object(),
+        model=object(),  # type: ignore[arg-type]
+        data={"y1": np.array([1.0, 2.0, 3.0]), "y2": np.array([0.0])},
+        group_names=("g", "ref=0"),
+        settings={"one_sample": True},
+    )
+    w1 = one.welch_ttest()
+    assert w1["test"] == "one-sample t-test"
+    assert w1["cohen_d"] == pytest.approx(2.0)
+
+
+def test_ttest_power_gpower_conventions():
+    """G*Power の定番: 両側 α=0.05, d=0.5 で 80% に必要な n。"""
+    two = _ttest_power_analysis(0.5, 64, 64)
+    assert two["observed_power"] == pytest.approx(0.80, abs=0.01)
+    assert two["mdes"] == pytest.approx(0.50, abs=0.01)
+    assert two["n_required"] == 64
+
+    one = _ttest_power_analysis(0.5, 34, None)
+    assert one["observed_power"] == pytest.approx(0.80, abs=0.02)
+    assert one["n_required"] == 34
+    assert one["n_required_is_per_group"] is False
+
+    zero = _ttest_power_analysis(0.0, 50, 50)
+    assert zero["observed_power"] == pytest.approx(0.05, abs=0.005)
+    assert np.isinf(zero["n_required"])
+
+
+def test_ttest_power_on_result_two_and_one_sample():
+    two = BestResult(
+        idata=object(),
+        model=object(),  # type: ignore[arg-type]
+        data={
+            "y1": np.array([1.0, 2.0, 3.0]),
+            "y2": np.array([0.0, 1.0, 2.0]),
+        },
+        group_names=("a", "b"),
+    )
+    p2 = two.ttest_power()
+    assert 0.0 < p2["observed_power"] <= 1.0
+    assert p2["n_required_is_per_group"] is True
+    line = _format_ttest_power_line(p2)
+    assert "事後" in line and "感度" in line and "事前" in line
+    assert "/群" in line
+
+    one = BestResult(
+        idata=object(),
+        model=object(),  # type: ignore[arg-type]
+        data={"y1": np.array([1.0, 2.0, 3.0]), "y2": np.array([0.0])},
+        group_names=("g", "ref=0"),
+        settings={"one_sample": True},
+    )
+    p1 = one.ttest_power()
+    assert p1["one_sample"] is True
+    assert p1["n_required_is_per_group"] is False
+    assert "/群" not in _format_ttest_power_line(p1)
+
+
 def test_report_and_summary_run():
     rng = np.random.default_rng(8)
     a = rng.normal(5.0, 2.0, 60)
@@ -92,6 +180,9 @@ def test_report_and_summary_run():
     res = analyze_two(a, b, rope=(-0.5, 0.5), **FAST)
     text = res.report()
     assert "HDI" in text
+    assert "d =" in text
+    assert "検定力" in text
+    assert "事後 1-β=" in text
     df = res.summary()
     assert set(df.index) == {"diff_of_means", "diff_of_stds", "effect_size"}
 

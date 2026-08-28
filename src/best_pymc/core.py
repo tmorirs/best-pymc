@@ -79,6 +79,172 @@ def _as_array(y: Iterable[float], label: str) -> np.ndarray:
     return arr
 
 
+def _cohen_d(y1: np.ndarray, y2: np.ndarray | None = None) -> float:
+    """Cohen's d（標本・不偏分散）。
+
+    1標本: mean(y1) / sd(y1)
+    2標本: (mean(y1) - mean(y2)) / s_pooled
+           s_pooled は両群の不偏分散を自由度で重み付けした併合 SD
+           （独立2標本 t 検定で標準的に併記される d_s。Lakens, 2013）。
+
+    BEST の事後効果量は分母が sqrt((σ1²+σ2²)/2) で、外れ値にも頑健な
+    σ の事後推定を使うため、ここでの点推定とは値が食い違うことがある。
+    """
+    s1 = float(np.std(y1, ddof=1))
+    if y2 is None:
+        if s1 <= 0:
+            return float("nan")
+        return float(np.mean(y1) / s1)
+    n1, n2 = y1.size, y2.size
+    s2 = float(np.std(y2, ddof=1))
+    denom = n1 + n2 - 2
+    if denom <= 0:
+        return float("nan")
+    sp = float(np.sqrt(((n1 - 1) * s1**2 + (n2 - 1) * s2**2) / denom))
+    if sp <= 0:
+        return float("nan")
+    return float((np.mean(y1) - np.mean(y2)) / sp)
+
+
+def _ttest_ncp(d: float, n1: float, n2: float | None) -> float:
+    """独立2標本 / 1標本 t の非心度（G*Power / Cohen の定義）。"""
+    d_abs = abs(float(d))
+    if n2 is None:
+        return d_abs * np.sqrt(float(n1))
+    return d_abs * np.sqrt(float(n1) * float(n2) / (float(n1) + float(n2)))
+
+
+def _two_sided_nct_power(ncp: float, df: float, alpha: float = 0.05) -> float:
+    """両側 t 検定の検定力。非心 t の左裾は大非心度で NaN になりうるので 0 に落とす。"""
+    from scipy import stats
+
+    if df <= 0 or not np.isfinite(ncp) or not 0.0 < alpha < 1.0:
+        return float("nan")
+    ncp = abs(float(ncp))
+    tcrit = float(stats.t.ppf(1.0 - alpha / 2.0, df))
+    upper = float(stats.nct.sf(tcrit, df, ncp))
+    lower = float(stats.nct.cdf(-tcrit, df, ncp))
+    if not np.isfinite(upper):
+        upper = 1.0
+    if not np.isfinite(lower):
+        lower = 0.0
+    return float(np.clip(upper + lower, 0.0, 1.0))
+
+
+def _ttest_power_at(
+    d: float, n1: float, n2: float | None, alpha: float = 0.05
+) -> float:
+    df = (n1 - 1.0) if n2 is None else (n1 + n2 - 2.0)
+    return _two_sided_nct_power(_ttest_ncp(d, n1, n2), df, alpha)
+
+
+def _solve_monotone(f, lo: float, hi: float) -> float:
+    """f(lo)<0<f(hi) を仮定して根を返す。区間外なら lo / inf。"""
+    from scipy.optimize import brentq
+
+    f_lo, f_hi = f(lo), f(hi)
+    if not np.isfinite(f_lo) or not np.isfinite(f_hi):
+        return float("nan")
+    if f_lo >= 0:
+        return lo
+    if f_hi <= 0:
+        return float("inf")
+    return float(brentq(f, lo, hi))
+
+
+def _ttest_power_analysis(
+    d: float,
+    n1: int,
+    n2: int | None = None,
+    *,
+    alpha: float = 0.05,
+    target_power: float = 0.80,
+) -> dict:
+    """t 検定の検定力解析（G*Power の両側・独立/1標本 t）。
+
+    事後 (post hoc)
+        観測 d と現行 n での 1-β。p 値の単調関数なので、非有意の解釈には使えない
+        (Hoenig & Heisey, 2001)。
+    感度 (sensitivity)
+        現行 n で target_power を達成する最小 |d|（最小検出効果量）。
+    事前 (a priori)
+        観測 d で target_power に必要な n。2 標本は等配分の 1 群あたり、
+        1 標本は総 n。計画時は分析前に決めた効果量を使うべきで、観測 d は参考。
+
+    2 標本は df = n1+n2-2 の通常の独立 t（Welch ではない）。これは G*Power
+    の標準設定で、報告している Welch の p と完全には一致しない。
+    """
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha は 0 と 1 の間である必要があります")
+    if not 0.0 < target_power < 1.0:
+        raise ValueError("target_power は 0 と 1 の間である必要があります")
+
+    one_sample = n2 is None
+    out = {
+        "alpha": float(alpha),
+        "target_power": float(target_power),
+        "alternative": "two-sided",
+        "one_sample": one_sample,
+        "n1": int(n1),
+        "n2": None if one_sample else int(n2),
+        "cohen_d": float(d),
+        "observed_power": float("nan"),
+        "mdes": float("nan"),
+        "n_required": float("nan"),
+        "n_required_is_per_group": not one_sample,
+    }
+    if not np.isfinite(d) or n1 < 2 or (not one_sample and int(n2) < 2):
+        return out
+
+    out["observed_power"] = _ttest_power_at(d, float(n1), None if one_sample else float(n2), alpha)
+
+    def mdes_f(x: float) -> float:
+        return _ttest_power_at(x, float(n1), None if one_sample else float(n2), alpha) - target_power
+
+    out["mdes"] = _solve_monotone(mdes_f, 1e-6, 20.0)
+
+    d_abs = abs(float(d))
+
+    def n_f(n: float) -> float:
+        n = max(n, 2.0)
+        if one_sample:
+            return _ttest_power_at(d_abs, n, None, alpha) - target_power
+        return _ttest_power_at(d_abs, n, n, alpha) - target_power
+
+    n_star = _solve_monotone(n_f, 2.0, 1_000_000.0)
+    if np.isfinite(n_star):
+        n_int = int(np.ceil(n_star))
+        while n_int <= 1_000_000 and n_f(float(n_int)) < 0:
+            n_int += 1
+        n_star = float(n_int)
+    out["n_required"] = n_star
+    return out
+
+
+def _format_ttest_power_line(p: dict) -> str:
+    """report() 用の検定力1行。"""
+    if not np.isfinite(p["cohen_d"]):
+        return "検定力: 効果量が未定義のため省略"
+    op = p["observed_power"]
+    op_s = f"{op:.2f}" if np.isfinite(op) else "—"
+    mdes = p["mdes"]
+    mdes_s = f"{mdes:.3f}" if np.isfinite(mdes) else "—"
+    nreq = p["n_required"]
+    tgt = p["target_power"]
+    if not np.isfinite(nreq):
+        n_s = "n>10^6"
+    elif p["n_required_is_per_group"]:
+        n_s = f"n={int(nreq)}/群"
+    else:
+        n_s = f"n={int(nreq)}"
+    return (
+        f"検定力 (α={p['alpha']:g}, 両側): "
+        f"事後 1-β={op_s}; "
+        f"感度 |d|≥{mdes_s} ({tgt:.0%}); "
+        f"事前 {n_s} (観測d, {tgt:.0%})"
+    )
+
+
 # --------------------------------------------------------------------------
 # モデル構築
 # --------------------------------------------------------------------------
@@ -291,17 +457,45 @@ class BestResult:
         return pd.DataFrame(rows).set_index("variable")
 
     def welch_ttest(self) -> dict:
-        """比較用に Welch の t 検定も計算する（併記して報告するため）。"""
+        """比較用に Welch の t 検定と Cohen's d を計算する（併記して報告するため）。"""
         from scipy import stats
 
         if self.settings.get("one_sample"):
             t, p = stats.ttest_1samp(self.data["y1"], 0.0)
-            return {"test": "one-sample t-test", "t": float(t), "p_value": float(p)}
+            d = _cohen_d(self.data["y1"])
+            return {
+                "test": "one-sample t-test",
+                "t": float(t),
+                "p_value": float(p),
+                "cohen_d": d,
+            }
         t, p = stats.ttest_ind(self.data["y1"], self.data["y2"], equal_var=False)
-        return {"test": "Welch t-test", "t": float(t), "p_value": float(p)}
+        d = _cohen_d(self.data["y1"], self.data["y2"])
+        return {
+            "test": "Welch t-test",
+            "t": float(t),
+            "p_value": float(p),
+            "cohen_d": d,
+        }
+
+    def ttest_power(self, alpha: float = 0.05, target_power: float = 0.80) -> dict:
+        """t 検定の検定力解析（事後・感度・事前）。詳細は `_ttest_power_analysis`。"""
+        one = bool(self.settings.get("one_sample"))
+        y1 = self.data["y1"]
+        if one:
+            d = _cohen_d(y1)
+            n2 = None
+        else:
+            d = _cohen_d(y1, self.data["y2"])
+            n2 = int(self.data["y2"].size)
+        return _ttest_power_analysis(
+            d, int(y1.size), n2, alpha=alpha, target_power=target_power
+        )
 
     # ---- 報告文 -----------------------------------------------------------
-    def report(self, prob: float = 0.95) -> str:
+    def report(
+        self, prob: float = 0.95, *, alpha: float = 0.05, target_power: float = 0.80
+    ) -> str:
         """BARG (Kruschke 2021) を意識した報告用テキストを生成する。"""
         g1, g2 = self.group_names
         n1, n2 = self.data["y1"].size, self.data["y2"].size
@@ -369,7 +563,16 @@ class BestResult:
             )
         lines.append("-" * 70)
         w = self.welch_ttest()
-        lines.append(f"[参考] {w['test']}: t = {w['t']:.3f}, p = {w['p_value']:.4g}")
+        lines.append(
+            f"[参考] {w['test']}: t = {w['t']:.3f}, p = {w['p_value']:.4g}, "
+            f"d = {w['cohen_d']:.3f}"
+        )
+        lines.append(
+            "      "
+            + _format_ttest_power_line(
+                self.ttest_power(alpha=alpha, target_power=target_power)
+            )
+        )
         lines.append("=" * 70)
         return "\n".join(lines)
 
