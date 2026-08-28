@@ -8,3 +8,10 @@ dist/
 *.png
 !docs/*.png
 .ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Microsoft Office の一時ファイル
+~$*
+.serena/
