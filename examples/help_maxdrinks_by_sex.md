@@ -115,3 +115,63 @@ wilcox.test(max_drinks_per_day ~ sex, data = d)
 - 同じファイルの `cesd` を `sex` で比べると Welch p = 0.0003 と明確に有意（女性のほうが高得点）です。
   「同じ集団・同じ n でも、変数によって検出できたりできなかったりする」対比として使えます。
   `homeless` × `cesd` なら Welch p = 0.064 で、これも境界例です。
+
+## 8. サンプルスクリプト（BEST で見直す）
+
+同ディレクトリの `help_maxdrinks_by_sex.py` は、このデータを外れ値にロバストな
+ベイズ推定（Kruschke の BEST）で見直すサンプルです。CSV の他の列も含め、
+「t 検定ではぎりぎり非有意（p が 0.05 の少し上）だが、順位検定では明確に有意」という
+主対象と同じ構図になる比較を、**コマンドラインオプションで切り替えて**実行できます。
+
+```bash
+# 既定: 性別 × 1日最大飲酒量（元からの主対象）
+python examples/help_maxdrinks_by_sex.py
+
+# 用意した別の境界例を選ぶ
+python examples/help_maxdrinks_by_sex.py --case homeless-cesd
+
+# 比較例の一覧（想定仮説と目安の p 値つき）を表示
+python examples/help_maxdrinks_by_sex.py --list-cases
+
+# 列を自由に組み合わせる（3水準の substance は --levels 必須）
+python examples/help_maxdrinks_by_sex.py --group substance --outcome cesd --levels alcohol heroin
+
+# ROPE や閾値を個別に上書き
+python examples/help_maxdrinks_by_sex.py --case sex-avgdrinks --rope -0.5 0.5 --threshold 2
+
+# ヘルプ
+python examples/help_maxdrinks_by_sex.py --help
+```
+
+### 用意した比較例（`--case`）
+
+いずれも Welch の t 検定と Mann–Whitney U を手元計算した目安の値です。
+
+| `--case` | 比較（群 × 変数） | 想定仮説 | Welch p | MWU p |
+|---|---|---|---|---|
+| `sex-maxdrinks`（既定） | sex: male vs female × `max_drinks_per_day` | 男性のほうが1日最大飲酒量が多い | 0.051 | 0.004 |
+| `sex-avgdrinks` | sex: male vs female × `avg_drinks_per_day` | 男性のほうが1日平均飲酒量が多い | 0.067 | 0.007 |
+| `substance-avgdrinks` | substance: cocaine vs heroin × `avg_drinks_per_day` | コカイン群のほうが平均飲酒量が多い | 0.054 | 0.003 |
+| `homeless-cesd` | homeless: homeless vs housed × `cesd` | ホームレス群のほうが抑うつ得点が高い | 0.064 | 0.026 |
+| `sex-cesd`（対比用） | sex: female vs male × `cesd` | 女性のほうが抑うつ得点が高い | 0.0003 | — |
+
+最初の4つは「t 検定だけが非有意側に落ちる」境界例です。最後の `sex-cesd` は逆に
+明確に有意で、「同じ集団・同じ n でも、変数によって検出できたりできなかったりする」
+という対比として並べてあります。
+
+### 主なオプション
+
+| オプション | 内容 |
+|---|---|
+| `--case NAME` | 事前定義の比較例を選ぶ（既定 `sex-maxdrinks`）。`--list-cases` で説明を表示 |
+| `--group {sex,substance,homeless}` | 群分けに使う列（`--case` を上書き） |
+| `--outcome {max_drinks_per_day,avg_drinks_per_day,age,cesd}` | 比較する量的変数（`--case` を上書き） |
+| `--levels G1 G2` | 比較する2水準。差は G1 − G2 の向き（3水準の `substance` では必須） |
+| `--rope LOW HIGH` | ROPE（実質的同等領域）の区間 |
+| `--threshold X` | `P(平均差 > X | データ)` を問い合わせる「実質的に意味のある差」 |
+| `--seed N` / `--prefix STR` / `--no-plot` | 乱数シード / 出力 PNG の接頭辞 / 図の保存を省略 |
+
+出力される `report()` には比較用に **Welch の t 検定・Cohen's d・検定力** も併記されるため、
+「頻度論の t 検定ではどう見えるか」を BEST の事後確率と同じ画面で確認できます。
+たとえば `--case homeless-cesd` では Welch p = 0.064（非有意）に対し、BEST では
+平均差が正である事後確率 P(> 0) ≈ 0.97 が得られます。
