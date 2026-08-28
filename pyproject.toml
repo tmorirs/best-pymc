@@ -9,6 +9,7 @@ description = "BEST (Bayesian ESTimation supersedes the t test) for current PyMC
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+license-files = ["LICENSE"]
 authors = [{ name = "best-pymc contributors" }]
 keywords = ["bayesian", "t-test", "pymc", "BEST", "kruschke", "mcmc"]
 classifiers = [
