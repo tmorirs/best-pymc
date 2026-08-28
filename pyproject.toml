@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "best-pymc"
+version = "0.1.0"
+description = "BEST (Bayesian ESTimation supersedes the t test) for current PyMC"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "best-pymc contributors" }]
+keywords = ["bayesian", "t-test", "pymc", "BEST", "kruschke", "mcmc"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = [
+    "pymc>=5.10",
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "arviz>=0.15",
+]
+
+[project.urls]
+"BEST (Kruschke 2013)" = "https://doi.org/10.1037/a0029146"
+"PyMC example gallery" = "https://www.pymc.io/projects/examples/en/latest/case_studies/BEST.html"
+
+# コマンドとして直接実行できる例:
+#   uv run best-demo
+[project.scripts]
+best-demo = "best_pymc.cli:main"
+
+# uv が推奨する開発用依存の書き方 (PEP 735)。
+#   uv sync           -> 本体 + dev グループを一括で入れる
+#   uv sync --no-dev  -> 本体のみ
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "ipykernel>=6.29",
+]
+
+# pip でも同じことができるように、従来の extras も残しておく:
+#   pip install -e ".[test]"
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[tool.uv]
+# 本体をアンパックせず編集可能インストールにする (uv sync の既定動作を明示)
+package = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::UserWarning"]
