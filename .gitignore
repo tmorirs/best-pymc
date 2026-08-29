@@ -7,11 +7,11 @@ dist/
 .pytest_cache/
 *.png
 !docs/*.png
+*.jpg
+!docs/*.jpg
 .ipynb_checkpoints/
 
-# macOS
-.DS_Store
-
-# Microsoft Office の一時ファイル
-~$*
 .serena/
+
+.DS_Store
+~$*
