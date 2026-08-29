@@ -13,7 +13,7 @@
   *Linking alcohol and drug-dependent adults to primary medical care: a randomized controlled trial
   of a multi-disciplinary health intervention in a detoxification unit.*
   Addiction. 2003; 98(4): 509–516.
-- パッケージのライセンス: GPL（`mosaicData`）
+- ライセンス・再配布の扱い: **下記「9. データのライセンスと再配布について」を必ず参照**（一言で「GPL」とは言えません）
 
 ## 2. ファイル
 
@@ -175,3 +175,68 @@ python examples/help_maxdrinks_by_sex.py --help
 「頻度論の t 検定ではどう見えるか」を BEST の事後確率と同じ画面で確認できます。
 たとえば `--case homeless-cesd` では Welch p = 0.064（非有意）に対し、BEST では
 平均差が正である事後確率 P(> 0) ≈ 0.97 が得られます。
+
+## 9. データのライセンスと再配布について
+
+この節は、上の「1. 何のデータか」で **「GPL」とだけ書いていたのが不正確だった** ため、
+経緯を含めて改めて整理するものです。結論を先に書くと、**このCSVの元データに
+「LICENSE ファイル」が単体で付いていたわけではなく、GPL は R パッケージという配布物
+全体に付いていたライセンス**です。データの行列そのものの再配布可否は、下記の
+複数の情報を突き合わせて判断しています。
+
+### 由来のたどり方（3段階）
+
+1. **原典（データの生成元）**
+   HELP study そのもの。原著は Samet JH ら (Addiction. 2003; 98(4): 509–516)。
+   データの著作権・帰属はまず研究チーム側にあります。
+
+2. **R パッケージ `mosaicData`（配布物）**
+   HELP study のベースライン抽出が `HELPrct` として収録されているのがこのパッケージです。
+   CRAN 上の `mosaicData` の **License 欄は `GPL-2 | GPL-3`（= `GPL (≥ 2)`）**。
+   作者は Randall Pruim, Daniel Kaplan, Nicholas Horton（保守は Randall Pruim）。
+   ここで重要なのは、**この GPL は「R パッケージ（コード＋ドキュメント＋同梱データを
+   まとめた配布物）」に対して宣言されたライセンスであって、`HELPrct` の数値表単体に
+   個別の LICENSE ファイルが添付されていたわけではない** という点です。GPL は本来
+   ソフトウェアのためのライセンスであり、「観測値の行列」がそれにどこまで従属するかは
+   自明ではありません。
+
+3. **Rdatasets（実際の取得元）**
+   本CSVを取ってきたのは Vincent Arel-Bundock 氏の
+   [Rdatasets](https://github.com/vincentarelbundock/Rdatasets)
+   （`csv/mosaicData/HELPrct.csv`）です。同リポジトリの README には、
+   ライセンスについて次のように書かれています（原文ママ）。
+
+   > The code in this repository is licensed under GPL-3.
+   >
+   > the R documentation which I copied to the Rdatasets html folder is licensed under GPL
+   >
+   > **My understanding is that these datasets are free to re-distribute.**
+   >
+   > I made a good faith effort to determine the license under which the actual data
+   > (i.e. rows/columns of numbers) were distributed, but I was unable to find a
+   > definitive answer.
+
+   つまり Rdatasets 側でも、**GPL が掛かっているのはリポジトリの「コード」と
+   「Rドキュメント」であって、データ行列そのものの厳密なライセンスは特定できなかった**、
+   そのうえで作者は **「これらのデータセットは自由に再配布できると理解している」** と
+   明言しています。加えて README には、権利者から連絡があればデータを速やかに削除し
+   履歴からも消す、という趣旨の対応方針も書かれています。
+
+### この配布物での扱い
+
+- 上記を踏まえ、本リポジトリでは `help_maxdrinks_by_sex.csv` を
+  **「Rdatasets 経由で自由に再配布できると理解されているデータ」** として同梱しています。
+  「元データが GPL である」という単純化した表現は、GPL が本来はパッケージ配布物に対する
+  ものである以上、誤解を招くため使いません。
+- 本リポジトリ直下の `LICENSE`（MIT）は **`best-pymc` というソフトウェア本体** に対する
+  ものであり、この HELP study 由来のデータに遡及して適用されるものではありません。
+  データの帰属・原典表示は本節および「1. 何のデータか」に記載したとおりです。
+- 学術利用の際は、データの出典として **原典（Samet et al., 2003）と、収録元
+  `mosaicData` パッケージ** を併記してください。取得の便宜として Rdatasets を
+  経由した旨も書いておくと再現しやすくなります。
+- もし権利関係について懸念がある場合は、Rdatasets の方針（権利者の申し出により削除）に
+  ならい、本リポジトリからも当該データを削除します。
+
+> 注意: 本節はライセンスの状況を可能な範囲で正確に記述したものであり、法的助言では
+> ありません。厳密な可否判断が必要な用途では、原典および `mosaicData` の権利者に
+> 直接確認してください。
