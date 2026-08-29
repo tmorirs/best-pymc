@@ -60,6 +60,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--hdi-prob", type=float, default=0.95)
     p.add_argument("--plot", metavar="PATH", help="事後分布の図をこのパスに保存する")
     p.add_argument(
+        "--overlaid",
+        action="store_true",
+        help="平均・標準偏差などを群ごとに別パネルへ並べず、色分けして同一パネルに重ねる",
+    )
+    p.add_argument(
         "--sensitivity",
         action="store_true",
         help="事前分布の感度分析もあわせて実行する",
@@ -112,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         import matplotlib
 
         matplotlib.use("Agg")
-        fig = result.plot_all(prob=args.hdi_prob)
+        fig = result.plot_all(prob=args.hdi_prob, overlaid=args.overlaid)
         fig.savefig(args.plot, dpi=120)
         print(f"\n図を {args.plot} に保存しました。")
 

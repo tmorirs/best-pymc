@@ -190,3 +190,27 @@ def test_report_and_summary_run():
 def test_rejects_tiny_input():
     with pytest.raises(ValueError):
         analyze_two([1.0], [1.0, 2.0], **FAST)
+
+
+def test_plot_all_overlaid_runs():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    rng = np.random.default_rng(3)
+    a = rng.normal(5.0, 2.0, 50)
+    b = rng.normal(4.0, 2.0, 50)
+    res = analyze_two(a, b, group_names=("A", "B"), **FAST)
+
+    fig = res.plot_all(overlaid=True)
+    # 平均・標準偏差が群ごとに 1 枚へまとまるので、並列描画よりパネルが減る
+    n_overlaid = len(fig.axes)
+    n_side = len(res.plot_all(overlaid=False).axes)
+    assert n_overlaid < n_side
+    # 重ねたパネルには両群の凡例が付く
+    legend_texts = {
+        t.get_text()
+        for ax in fig.axes
+        if ax.get_legend()
+        for t in ax.get_legend().get_texts()
+    }
+    assert {"A", "B"} <= legend_texts

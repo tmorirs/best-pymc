@@ -80,7 +80,11 @@ uv run best-demo --csv data.csv --group-column arm --value-column score \
 ```
 
 主なオプション: `--rope LOW HIGH` / `--draws` / `--tune` / `--chains` /
-`--seed` / `--hdi-prob` / `--plot PATH` / `--sensitivity`。
+`--seed` / `--hdi-prob` / `--plot PATH` / `--overlaid` / `--sensitivity`。
+
+`--overlaid` を付けると、平均・標準偏差（正規性 nu も群別に推定した場合）を
+群ごとに別パネルへ並べる代わりに、色分けして同一パネルに重ねて描く。
+二群の位置と広がりを直接見比べたいときに分かりやすい。
 
 ## 使い方
 
@@ -100,6 +104,7 @@ res.posterior_prob("diff_of_means", low=0.5)   # P(差 > 0.5 | データ)
 res.rope_decision()                     # {'decision': 'different', ...}
 res.summary()                           # pandas.DataFrame
 res.plot_all()                          # Kruschke 風の事後分布プロット
+res.plot_all(overlaid=True)             # 平均・標準偏差を群ごとに色分けして重ねる
 ```
 
 対応のあるデータ（前後比較）は差得点を作って1標本として扱う:

@@ -12,11 +12,15 @@ from .core import hdi
 
 __all__ = [
     "plot_posterior",
+    "plot_posterior_overlaid",
     "plot_all",
     "plot_data_with_ppc",
     "setup_japanese_font",
     "japanese_font_available",
 ]
+
+# 群を重ねて描くときの配色（見分けやすい 2 色を先頭に）
+_OVERLAY_COLORS = ["#7fa8d1", "#d98c5f"]
 
 # 日本語が使える代表的なフォント（見つかった順に採用）
 _JP_FONT_CANDIDATES = [
@@ -172,7 +176,78 @@ def plot_posterior(
     return ax
 
 
-def plot_all(result, *, prob: float = 0.95, figsize=None, rope=None, lang: str = "auto"):
+def plot_posterior_overlaid(
+    ax,
+    samples_list,
+    labels,
+    *,
+    title: str = "",
+    prob: float = 0.95,
+    bins: int = 60,
+    point: str = "mean",
+    lang: str = "auto",
+    colors=None,
+):
+    """複数群の事後分布を同一パネルに色分けで重ねて描く。
+
+    `plot_posterior` が 1 群を単独で描くのに対し、こちらは二群（以上）の
+    ヒストグラムを半透明で重ね、群ごとに HDI バーと点推定を段違いで並べる。
+    平均どうし・標準偏差どうしを直接見比べたいときに使う。
+    """
+    L = _resolve_lang(lang)
+    xs = [np.asarray(s).ravel() for s in samples_list]
+    cols = colors or _OVERLAY_COLORS
+    cols = [cols[i % len(cols)] for i in range(len(xs))]
+
+    # 全群共通のビン端を決めて、ヒストグラムの高さを比較可能にする
+    lo_all = min(float(x.min()) for x in xs)
+    hi_all = max(float(x.max()) for x in xs)
+    edges = np.linspace(lo_all, hi_all, bins + 1)
+
+    for x, color in zip(xs, cols):
+        ax.hist(x, bins=edges, density=True, color=color, edgecolor="none", alpha=0.5)
+    ax.set_yticks([])
+    for side in ("left", "right", "top"):
+        ax.spines[side].set_visible(False)
+
+    ymax = ax.get_ylim()[1]
+    n = len(xs)
+    for i, (x, color, label) in enumerate(zip(xs, cols, labels)):
+        lo, hi = hdi(x, prob)
+        span = hi - lo
+        center = float(np.mean(x)) if point == "mean" else float(np.median(x))
+        # 群ごとに HDI バーの高さをずらして重なりを避ける
+        y_bar = ymax * (0.05 + 0.09 * (n - 1 - i))
+        ax.plot([lo, hi], [y_bar] * 2, color=color, lw=3, solid_capstyle="butt")
+        ax.text(
+            center, y_bar, f" {label}: {_fmt(center, span)}",
+            ha="left" if center <= (lo_all + hi_all) / 2 else "right",
+            va="bottom", fontsize=9, color=color,
+        )
+
+    handles = [
+        plt_patch(color, label) for color, label in zip(cols, labels)
+    ]
+    ax.legend(handles=handles, fontsize=9, loc="upper right", frameon=False)
+    ax.text(
+        0.5, 1.0, f"{prob:.0%} {L['hdi']}",
+        transform=ax.transAxes, ha="center", va="top", fontsize=8, color="#555555",
+    )
+    ax.set_title(title, fontsize=11)
+    return ax
+
+
+def plt_patch(color, label):
+    """凡例用の色パッチ（matplotlib を関数内で import するためのヘルパ）。"""
+    from matplotlib.patches import Patch
+
+    return Patch(facecolor=color, edgecolor="none", alpha=0.5, label=label)
+
+
+def plot_all(
+    result, *, prob: float = 0.95, figsize=None, rope=None, lang: str = "auto",
+    overlaid: bool = False,
+):
     """主要パラメータと差の事後分布を一枚にまとめて描く。"""
     import matplotlib.pyplot as plt
 
@@ -182,44 +257,80 @@ def plot_all(result, *, prob: float = 0.95, figsize=None, rope=None, lang: str =
     g1, g2 = result.group_names
     post = result.idata.posterior
 
+    # パネルは 2 形式を混在させる:
+    #   ("single",  var,           title, ref, rope)
+    #   ("overlay", (var1, var2),  title, (label1, label2))
     if one_sample:
+        # 群が 1 つなので重ね描きは効かない（単独描画のまま）
         panels = [
-            ("mu1", f"{L['mean_of']} ({g1})", None, None),
-            ("sigma1", f"{L['sd_of']} ({g1})", None, None),
-            ("nu", L["normality"], None, None),
-            ("diff_of_means", L["diff_means_1s"], 0.0, rope),
-            ("effect_size", L["effect"], 0.0, None),
+            ("single", "mu1", f"{L['mean_of']} ({g1})", None, None),
+            ("single", "sigma1", f"{L['sd_of']} ({g1})", None, None),
+            ("single", "nu", L["normality"], None, None),
+            ("single", "diff_of_means", L["diff_means_1s"], 0.0, rope),
+            ("single", "effect_size", L["effect"], 0.0, None),
+        ]
+    elif overlaid:
+        panels = [
+            ("overlay", ("mu1", "mu2"), L["mean_of"], (g1, g2)),
+            ("overlay", ("sigma1", "sigma2"), L["sd_of"], (g1, g2)),
+        ]
+        if "nu" in post:
+            panels.append(("single", "nu", L["normality"], None, None))
+        else:
+            panels.append(("overlay", ("nu1", "nu2"), L["normality"], (g1, g2)))
+        panels += [
+            ("single", "diff_of_means", L["diff_means"], 0.0, rope),
+            ("single", "diff_of_stds", L["diff_stds"], 0.0, None),
+            ("single", "effect_size", L["effect"], 0.0, None),
         ]
     else:
         panels = [
-            ("mu1", f"{L['mean_of']} ({g1})", None, None),
-            ("mu2", f"{L['mean_of']} ({g2})", None, None),
-            ("sigma1", f"{L['sd_of']} ({g1})", None, None),
-            ("sigma2", f"{L['sd_of']} ({g2})", None, None),
+            ("single", "mu1", f"{L['mean_of']} ({g1})", None, None),
+            ("single", "mu2", f"{L['mean_of']} ({g2})", None, None),
+            ("single", "sigma1", f"{L['sd_of']} ({g1})", None, None),
+            ("single", "sigma2", f"{L['sd_of']} ({g2})", None, None),
         ]
         if "nu" in post:
-            panels.append(("nu", L["normality"], None, None))
+            panels.append(("single", "nu", L["normality"], None, None))
         else:
-            panels.append(("nu1", f"{L['normality']} ({g1})", None, None))
-            panels.append(("nu2", f"{L['normality']} ({g2})", None, None))
+            panels.append(("single", "nu1", f"{L['normality']} ({g1})", None, None))
+            panels.append(("single", "nu2", f"{L['normality']} ({g2})", None, None))
         panels += [
-            ("diff_of_means", L["diff_means"], 0.0, rope),
-            ("diff_of_stds", L["diff_stds"], 0.0, None),
-            ("effect_size", L["effect"], 0.0, None),
+            ("single", "diff_of_means", L["diff_means"], 0.0, rope),
+            ("single", "diff_of_stds", L["diff_stds"], 0.0, None),
+            ("single", "effect_size", L["effect"], 0.0, None),
         ]
 
-    panels = [p for p in panels if p[0] in post]
+    # 対応する変数が事後分布に無いパネルは落とす
+    def _panel_ok(p):
+        if p[0] == "single":
+            return p[1] in post
+        return all(v in post for v in p[1])
+
+    panels = [p for p in panels if _panel_ok(p)]
     ncol = 2
     nrow = int(np.ceil(len(panels) / ncol))
     figsize = figsize or (10, 2.5 * nrow)
     fig, axes = plt.subplots(nrow, ncol, figsize=figsize)
     axes = np.asarray(axes).ravel()
 
-    for ax, (var, title, ref, rp) in zip(axes, panels):
-        plot_posterior(
-            ax, result.samples(var), title=title, ref_val=ref, rope=rp,
-            prob=prob, lang=lang,
-        )
+    for ax, panel in zip(axes, panels):
+        if panel[0] == "single":
+            _, var, title, ref, rp = panel
+            plot_posterior(
+                ax, result.samples(var), title=title, ref_val=ref, rope=rp,
+                prob=prob, lang=lang,
+            )
+        else:
+            _, vars_, title, labels = panel
+            plot_posterior_overlaid(
+                ax,
+                [result.samples(v) for v in vars_],
+                labels,
+                title=title,
+                prob=prob,
+                lang=lang,
+            )
     for ax in axes[len(panels):]:
         ax.axis("off")
 

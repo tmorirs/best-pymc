@@ -262,6 +262,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="図の保存を省略する。",
     )
+    p.add_argument(
+        "--overlaid",
+        action="store_true",
+        help="平均・標準偏差を群ごとに別パネルへ並べず、色分けして同一パネルに重ねる。",
+    )
     return p
 
 
@@ -317,7 +322,7 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     prefix = cfg["prefix"]
-    fig = result.plot_all()
+    fig = result.plot_all(overlaid=args.overlaid)
     fig.savefig(f"{prefix}_posterior.png", dpi=120)
     fig2 = plot_data_with_ppc(result)
     fig2.savefig(f"{prefix}_ppc.png", dpi=120)
